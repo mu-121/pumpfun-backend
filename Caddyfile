@@ -1,0 +1,35 @@
+# Caddy automatically issues + renews a Let's Encrypt cert for {$DOMAIN}.
+# Set DOMAIN in the .env file used by docker-compose.
+
+{$DOMAIN} {
+    encode zstd gzip
+
+    # WebSocket upgrades for socket.io
+    @websocket {
+        header Connection *Upgrade*
+        header Upgrade websocket
+    }
+    handle @websocket {
+        reverse_proxy backend:4000
+    }
+
+    # Prometheus scrape — restrict to a private network if you expose this publicly.
+    handle /api/v1/metrics {
+        # @internal client_ip 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+        # not @internal abort
+        reverse_proxy backend:4000
+    }
+
+    # Everything else
+    handle {
+        reverse_proxy backend:4000 {
+            header_up X-Forwarded-Proto {scheme}
+            header_up X-Forwarded-For {remote_host}
+        }
+    }
+
+    log {
+        output stdout
+        format console
+    }
+}

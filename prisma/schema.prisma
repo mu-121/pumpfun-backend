@@ -1,0 +1,115 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TradeSide {
+  BUY
+  SELL
+}
+
+enum CandleInterval {
+  ONE_MIN
+  FIVE_MIN
+  ONE_HOUR
+  ONE_DAY
+}
+
+model Token {
+  id             String @id @default(cuid())
+  mintAddress    String @unique
+  poolAddress    String @unique
+  configKey      String
+  creatorAddress String
+
+  name        String
+  symbol      String
+  description String?
+  imageUrl    String?
+  twitterUrl  String?
+  telegramUrl String?
+  websiteUrl  String?
+
+  createdAt            DateTime  @default(now())
+  graduatedAt          DateTime?
+  graduatedPoolAddress String?
+  isGraduated          Boolean   @default(false)
+
+  virtualSolReserves   BigInt @default(0)
+  virtualTokenReserves BigInt @default(0)
+  realSolReserves      BigInt @default(0)
+  realTokenReserves    BigInt @default(0)
+  totalSupply          BigInt
+
+  lastTradeAt  DateTime?
+  tradeCount   Int       @default(0)
+  holderCount  Int       @default(0)
+  marketCapUsd Float     @default(0)
+
+  trades  Trade[]
+  holders Holder[]
+  candles Candle[]
+
+  @@index([createdAt])
+  @@index([lastTradeAt])
+  @@index([isGraduated])
+  @@index([creatorAddress])
+}
+
+model Trade {
+  id            String    @id @default(cuid())
+  signature     String    @unique
+  tokenMint     String
+  traderAddress String
+  side          TradeSide
+  solAmount     BigInt
+  tokenAmount   BigInt
+  priceUsd      Float
+  priceSol      Float
+  slot          BigInt
+  blockTime     DateTime
+  createdAt     DateTime  @default(now())
+
+  token Token @relation(fields: [tokenMint], references: [mintAddress], onDelete: Cascade)
+
+  @@index([tokenMint, blockTime])
+  @@index([traderAddress])
+  @@index([blockTime])
+}
+
+model Holder {
+  id            String   @id @default(cuid())
+  tokenMint     String
+  walletAddress String
+  balance       BigInt
+  updatedAt     DateTime @updatedAt
+
+  token Token @relation(fields: [tokenMint], references: [mintAddress], onDelete: Cascade)
+
+  @@unique([tokenMint, walletAddress])
+  @@index([tokenMint, balance])
+  @@index([walletAddress])
+}
+
+model Candle {
+  id          String         @id @default(cuid())
+  tokenMint   String
+  interval    CandleInterval
+  bucketStart DateTime
+  open        Float
+  high        Float
+  low         Float
+  close       Float
+  volumeSol   Float          @default(0)
+  volumeUsd   Float          @default(0)
+  trades      Int            @default(0)
+
+  token Token @relation(fields: [tokenMint], references: [mintAddress], onDelete: Cascade)
+
+  @@unique([tokenMint, interval, bucketStart])
+  @@index([tokenMint, interval, bucketStart])
+}

@@ -1,0 +1,82 @@
+# Production-ready compose for a single-node Hetzner box.
+#
+# Topology:
+#   internet → :443 (caddy, auto-TLS) → backend:4000
+#                                    → postgres:5432 (private)
+#                                    → redis:6379    (private)
+#
+# Required env (set in `.env` next to this file):
+#   - POSTGRES_PASSWORD              for the local postgres
+#   - DATABASE_URL                   should be postgresql://pump:${POSTGRES_PASSWORD}@postgres:5432/pump_clone
+#   - REDIS_URL                      should be redis://redis:6379
+#   - DOMAIN                         e.g. api.example.com — Caddy will auto-issue an ACME cert for this
+#   - everything else from .env.example (HELIUS_*, R2_*, DBC_CONFIG_KEY, WEBHOOK_AUTH_SECRET, etc.)
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pump
+      POSTGRES_DB: pump_clone
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U pump -d pump_clone']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--save', '60', '1000', '--appendonly', 'yes']
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT: '4000'
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    expose:
+      - '4000'
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:4000/health']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - backend
+
+volumes:
+  postgres-data:
+  redis-data:
+  caddy-data:
+  caddy-config:
